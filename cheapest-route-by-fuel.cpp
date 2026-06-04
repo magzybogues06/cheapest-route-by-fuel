@@ -112,46 +112,66 @@ public:
 
     // Добавляет город в граф с проверками
     void addCity(int id, string name, double price) {
-        // Проверка на дублирование названия
-        for (auto& p : cities) {
-            if (p.second.name == name) {
-                errors.insert(Error(ErrorType::VertexNameDuplicate, id));
-                return;
+        bool hasError = false;
+
+        // Проверка на дублирование 
+        if (!name.empty()) {
+            for (auto& p : cities) {
+                if (p.second.name == name) {
+                    errors.insert(Error(ErrorType::VertexNameDuplicate, id));
+                    hasError = true;
+                    break;
+                }
             }
         }
+
         // Проверка на пустое название
         if (name.empty()) {
             errors.insert(Error(ErrorType::VertexNameMissing, id));
-            return;
+            hasError = true;
         }
-        // Проверка длины названия
-        if (name.length() < 3 || name.length() > 50) {
-            errors.insert(Error(ErrorType::VertexNameLength, id, to_string(name.length())));
-            return;
+        else {
+            // Проверка длины 
+            if (name.length() < 3 || name.length() > 50) {
+                errors.insert(Error(ErrorType::VertexNameLength, id, to_string(name.length())));
+                hasError = true;
+            }
+
+            // Проверка на заглавные буквы
+            bool hasUpper = false;
+            for (char c : name) {
+                if (c >= 'A' && c <= 'Z') {
+                    hasUpper = true;
+                    break;
+                }
+            }
+            if (hasUpper) {
+                errors.insert(Error(ErrorType::VertexNameCase, id));
+                hasError = true;
+            }
+
+            // Проверка на запрещённые символы
+            bool hasBadChars = false;
+            for (char c : name) {
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) {
+                    hasBadChars = true;
+                    break;
+                }
+            }
+            if (hasBadChars) {
+                errors.insert(Error(ErrorType::VertexNameChars, id));
+                hasError = true;
+            }
         }
-        // Проверка на заглавные буквы и запрещённые символы
-        bool hasUpper = false;
-        bool hasBadChars = false;
-        for (char c : name) {
-            if (c >= 'A' && c <= 'Z') hasUpper = true;
-            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) hasBadChars = true;
-        }
-        if (hasUpper) {
-            errors.insert(Error(ErrorType::VertexNameCase, id));
-            return;
-        }
-        if (hasBadChars) {
-            errors.insert(Error(ErrorType::VertexNameChars, id));
-            return;
-        }
-        // Проверка цены
+
+        // Проверка цены 
         if (price < 50.0 || price > 90.0) {
             errors.insert(Error(ErrorType::VertexPriceRange, id));
-            return;
+            hasError = true;
         }
-        // Добавление города
-        City c{ id, name, price };
-        cities[id] = c;
+
+        // Добавляем город всегда
+        cities[id] = { id, name, price };
     }
 
     // Добавляет дорогу между двумя городами с проверками
@@ -301,60 +321,68 @@ string readFile(string filename, set<Error>& errors) {
 
 // Функция для парсинга TXT-файла и извлечения городов 
 bool parseTxt(const string& content, string& start, string& end, set<Error>& errors) {
-    // Удалить лишние пробелы
     string trimmed = trim(content);
 
-    // Найти первый пробел
-    size_t spacePos = trimmed.find(' ');
-    // Если нет пробела, значит ошибка
-    if (spacePos == string::npos) {
+    // Считаем количество слов (городов)
+    int wordCount = 0;
+    bool inWord = false;
+    for (char c : trimmed) {
+        if (c == ' ') {
+            if (inWord) {
+                wordCount++;
+                inWord = false;
+            }
+        }
+        else {
+            inWord = true;
+        }
+    }
+    if (inWord) wordCount++;
+
+    // Если больше 2 городов — сразу ошибка и выход
+    if (wordCount > 2) {
+        errors.insert(Error(ErrorType::StartEndTooManyCities));
+        return false;
+    }
+
+    // Если меньше 2 городов — ошибка формата
+    if (wordCount < 2) {
         errors.insert(Error(ErrorType::StartEndFormat));
         return false;
     }
 
-    // Разделить на start и end
+    // Теперь точно 2 города — разделяем
+    size_t spacePos = trimmed.find(' ');
     start = trim(trimmed.substr(0, spacePos));
-    string rest = trim(trimmed.substr(spacePos + 1));
+    end = trim(trimmed.substr(spacePos + 1));
 
-    // Если есть третий город, значит ошибка
-    if (rest.find(' ') != string::npos) {
-        errors.insert(Error(ErrorType::StartEndTooManyCities));
-    }
-    end = rest;
-
-    // Проверить start (длина, регистр, символы)
+    // Проверка начального города
     if (start.empty()) errors.insert(Error(ErrorType::StartEndFormat));
     if (start.length() < 3 || start.length() > 50) errors.insert(Error(ErrorType::StartEndLength));
-    for (char c : start) {
-        if (c >= 'A' && c <= 'Z') {
-            errors.insert(Error(ErrorType::StartEndCase));
-            break;
-        }
-    }
-    for (char c : start) {
-        if (!((c >= 'a' && c <= 'z'))) {
-            errors.insert(Error(ErrorType::StartEndChars));
-            break;
-        }
-    }
 
-    // Проверить end (длина, регистр, символы)
+    bool hasUpper = false;
+    bool hasBadChar = false;
+    for (char c : start) {
+        if (c >= 'A' && c <= 'Z') hasUpper = true;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) hasBadChar = true;
+    }
+    if (hasUpper) errors.insert(Error(ErrorType::StartEndCase));
+    if (hasBadChar) errors.insert(Error(ErrorType::StartEndChars));
+
+    // Проверка конечного города
     if (end.empty()) errors.insert(Error(ErrorType::StartEndFormat));
     if (end.length() < 3 || end.length() > 50) errors.insert(Error(ErrorType::StartEndLength));
-    for (char c : end) {
-        if (c >= 'A' && c <= 'Z') {
-            errors.insert(Error(ErrorType::StartEndCase));
-            break;
-        }
-    }
-    for (char c : end) {
-        if (!((c >= 'a' && c <= 'z'))) {
-            errors.insert(Error(ErrorType::StartEndChars));
-            break;
-        }
-    }
 
-    // Если start == end, значит ошибка
+    hasUpper = false;
+    hasBadChar = false;
+    for (char c : end) {
+        if (c >= 'A' && c <= 'Z') hasUpper = true;
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))) hasBadChar = true;
+    }
+    if (hasUpper) errors.insert(Error(ErrorType::StartEndCase));
+    if (hasBadChar) errors.insert(Error(ErrorType::StartEndChars));
+
+    // Проверка на совпадение городов
     if (start == end && !start.empty() && !end.empty()) {
         errors.insert(Error(ErrorType::StartEndNamesMatch));
     }
@@ -364,20 +392,19 @@ bool parseTxt(const string& content, string& start, string& end, set<Error>& err
 
 // Функция для парсинга DOT-файла и заполнения графа 
 bool parseDot(const vector<string>& lines, Graph& g) {
-    // Для каждой строки
     for (const string& line : lines) {
         string trimmed = trim(line);
         if (trimmed.empty()) continue;
         if (trimmed == "graph G {") continue;
         if (trimmed == "}") continue;
 
-        // Если "digraph", значит ошибка
+        // Проверка на ориентированный граф
         if (trimmed.find("digraph") != string::npos) {
             g.errors.insert(Error(ErrorType::GraphNotUndirected));
-            continue;
+            return false;
         }
 
-        // Если "--" (ребро), то извлечь номера, добавить ребро
+        // Парсинг ребра (1 -- 2)
         if (trimmed.find("--") != string::npos) {
             size_t dashPos = trimmed.find("--");
             string left = trim(trimmed.substr(0, dashPos));
@@ -390,13 +417,16 @@ bool parseDot(const vector<string>& lines, Graph& g) {
                 g.addEdge(a, b);
             }
             catch (...) {}
+            continue;
         }
 
-        // Если "[label" (вершина), то извлечь ID, проверить атрибуты
+        // Парсинг вершины (1 [label = "..."])
         if (trimmed.find("[label") != string::npos) {
             // Находим ID вершины
             size_t spacePos = trimmed.find(' ');
+            if (spacePos == string::npos) spacePos = trimmed.find('[');
             if (spacePos == string::npos) continue;
+
             string idStr = trim(trimmed.substr(0, spacePos));
             int id;
             try { id = stoi(idStr); }
@@ -405,81 +435,115 @@ bool parseDot(const vector<string>& lines, Graph& g) {
             // Проверка на лишние атрибуты
             if (trimmed.find("shape") != string::npos) {
                 g.errors.insert(Error(ErrorType::VertexUnexpectedAttr, id));
+                g.addCity(id, "unknown", 50.0);
                 continue;
             }
 
-            // Поиск содержимого в кавычках
+            // Находим содержимое в кавычках
             size_t q1 = trimmed.find('"');
             size_t q2 = trimmed.find('"', q1 + 1);
             if (q1 == string::npos || q2 == string::npos) {
                 g.errors.insert(Error(ErrorType::VertexLabelFormat, id));
+                g.addCity(id, "unknown", 50.0);
                 continue;
             }
 
             string label = trimmed.substr(q1 + 1, q2 - q1 - 1);
 
-            // Проверка количества разделителей
+            // Подсчитываем количество ";"
             int semicolonCount = 0;
-            for (char c : label) if (c == ';') semicolonCount++;
-            if (semicolonCount != 1) {
+            for (char c : label) {
+                if (c == ';') semicolonCount++;
+            }
+
+            // Если больше одного ";" — неверный формат label
+            if (semicolonCount > 1) {
                 g.errors.insert(Error(ErrorType::VertexLabelFormat, id));
+                g.addCity(id, "unknown", 50.0);
                 continue;
             }
 
-            // Поиск "; цена "
-            size_t pricePos = label.find("; цена ");
-            if (pricePos == string::npos) {
-                pricePos = label.find(";цена ");
-                if (pricePos == string::npos) {
-                    g.errors.insert(Error(ErrorType::VertexLabelFormat, id));
-                    continue;
+            // Если нет ";" — тоже неверный формат
+            if (semicolonCount == 0) {
+                g.errors.insert(Error(ErrorType::VertexLabelFormat, id));
+                g.addCity(id, "unknown", 50.0);
+                continue;
+            }
+
+            // Ищем разделитель ";"
+            size_t semicolon = label.find(';');
+
+            // Название города (всё до ";")
+            string cityName = trim(label.substr(0, semicolon));
+
+            // Часть с ценой (всё после ";")
+            string pricePart = trim(label.substr(semicolon + 1));
+
+            // Проверяем, есть ли в pricePart хоть одна цифра
+            bool hasDigit = false;
+            string priceStr;
+            for (size_t i = 0; i < pricePart.length(); i++) {
+                char c = pricePart[i];
+                if (c >= '0' && c <= '9') {
+                    hasDigit = true;
+                    priceStr = pricePart.substr(i);
+                    break;
                 }
             }
 
-            // Извлечение названия города
-            string cityName = label.substr(0, pricePos);
-            while (!cityName.empty() && cityName.back() == ' ') cityName.pop_back();
-
-            if (cityName.empty()) {
-                g.errors.insert(Error(ErrorType::VertexNameMissing, id));
-                continue;
-            }
-
-            // Извлечение цены
-            string priceStr = label.substr(pricePos + 1);
-            size_t digitPos = 0;
-            for (size_t i = 0; i < priceStr.length(); i++) {
-                if (isDigit(priceStr[i])) { digitPos = i; break; }
-            }
-            if (digitPos >= priceStr.length()) {
+            // Если нет цифр — ошибка отсутствия цены
+            if (!hasDigit || priceStr.empty()) {
                 g.errors.insert(Error(ErrorType::VertexPriceMissing, id));
+                g.addCity(id, cityName, 50.0);
                 continue;
             }
-            priceStr = priceStr.substr(digitPos);
 
-            // Проверка формата цены (запятая и 2 цифры)
+            // Проверка формата: должна быть запятая и 2 цифры после неё
             size_t commaPos = priceStr.find(',');
-            if (commaPos == string::npos ||
-                commaPos + 3 > priceStr.length() ||
-                !isDigit(priceStr[commaPos + 1]) ||
-                !isDigit(priceStr[commaPos + 2])) {
+            bool formatOk = true;
+
+            if (commaPos == string::npos) {
+                formatOk = false;
+            }
+            else if (commaPos + 3 > priceStr.length()) {
+                formatOk = false;
+            }
+            else if (!isDigit(priceStr[commaPos + 1]) || !isDigit(priceStr[commaPos + 2])) {
+                formatOk = false;
+            }
+
+            // Проверка, что после двух цифр нет других символов
+            if (formatOk && commaPos + 3 < priceStr.length()) {
+                char next = priceStr[commaPos + 3];
+                if (next != ' ' && next != '\0' && next != '\r' && next != '\n') {
+                    formatOk = false;
+                }
+            }
+
+            if (!formatOk) {
                 g.errors.insert(Error(ErrorType::VertexPriceFormat, id));
+                g.addCity(id, cityName, 50.0);
                 continue;
             }
 
-            // Преобразование цены
+            // Заменяем запятую на точку
             priceStr[commaPos] = '.';
+
+            double price;
             try {
-                double price = stod(priceStr);
-                g.addCity(id, cityName, price);
+                price = stod(priceStr);
             }
             catch (...) {
                 g.errors.insert(Error(ErrorType::VertexPriceFormat, id));
+                price = 50.0;
             }
+
+            // Добавляем город (проверки названия и цены внутри addCity)
+            g.addCity(id, cityName, price);
         }
     }
 
-    // Проверка количества вершин (2-100)
+    // Проверка количества вершин
     if (g.getCityCount() < 2 || g.getCityCount() > 100) {
         g.errors.insert(Error(ErrorType::VertexCountRange));
     }
@@ -552,14 +616,13 @@ int main(int argc, char* argv[]) {
     string txtFile = argv[2];
     string outFile = argv[3];
 
-    cout << endl << "=== Поиск наименее затратного маршрута ===" << endl << endl;
+    cout << endl << "Поиск наименее затратного маршрута" << endl << endl;
 
     Graph graph;
     set<Error> txtErrors;
     string startCity, endCity;
 
     // чтение и парсинг DOT-файла
-    cout << "Парсинг DOT файла..." << endl;
     string dotContent = readFile(dotFile, graph.errors);
     if (!dotContent.empty()) {
         vector<string> lines;
@@ -570,7 +633,6 @@ int main(int argc, char* argv[]) {
     }
 
     // чтение и парсинг TXT-файла
-    cout << "Парсинг TXT файла..." << endl;
     string txtContent = readFile(txtFile, txtErrors);
     if (!txtContent.empty()) {
         parseTxt(txtContent, startCity, endCity, txtErrors);
@@ -589,7 +651,6 @@ int main(int argc, char* argv[]) {
     // если есть ошибки, то завершить программу
     if (graph.hasErrors() || !txtErrors.empty()) {
         cout << endl << "Программа завершена из-за ошибок." << endl;
-        system("pause");
         return 1;
     }
 
@@ -599,12 +660,10 @@ int main(int argc, char* argv[]) {
 
     if (startId == -1) {
         cout << Error(ErrorType::StartEndCityNotFound, -1, startCity).getMessage() << endl;
-        system("pause");
         return 1;
     }
     if (endId == -1) {
         cout << Error(ErrorType::StartEndCityNotFound, -1, endCity).getMessage() << endl;
-        system("pause");
         return 1;
     }
 
@@ -632,7 +691,5 @@ int main(int argc, char* argv[]) {
         generateDotFile(outFile, graph, path, totalCost, false);
         cout << "Результат сохранен в: " << outFile << endl;
     }
-
-    system("pause");
     return 0;
 }
