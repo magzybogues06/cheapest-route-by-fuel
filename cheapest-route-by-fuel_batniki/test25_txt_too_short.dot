@@ -1,0 +1,5 @@
+graph G {
+1 -- 2
+1 [label = "moscow; цена 63,72"]
+2 [label = "samara; цена 56,72"]
+}
